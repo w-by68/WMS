@@ -1,0 +1,51 @@
+# =============================================================
+# 主配置文件：与环境无关的通用配置
+# 数据源等环境相关配置见 application-dev.yml
+# =============================================================
+server:
+  port: 8080
+  # TODO(08-运维)：反向代理（Nginx）部署时如需子路径，在此配置 server.servlet.context-path
+
+spring:
+  application:
+    name: wms-server
+  profiles:
+    active: dev
+  jackson:
+    # 全局日期格式与东八区，前端展示 yyyy-MM-dd HH:mm:ss
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+mybatis-plus:
+  # 复杂联查如需 XML，放 classpath:mapper/ 目录（当前阶段纯注解 + BaseMapper，目录预留）
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    # 数据库下划线字段 -> 实体驼峰属性：last_inbound_time -> lastInboundTime
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      # 逻辑删除统一由实体上的 @TableLogic 注解生效：0-未删除 1-已删除
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+# JWT 配置（02 阶段启用）
+wms:
+  jwt:
+    # HS256 密钥，长度需 >= 32 字节（256 位），支持环境变量覆盖
+    secret: ${JWT_SECRET:wms-secret-key-2024-for-smart-warehouse-system}
+    # 过期时间：默认 8 小时（毫秒）
+    expiration: ${JWT_EXPIRATION:28800000}
+
+# =============================================================
+# TODO(08-运维)：
+# 1) 日志：在此追加 logback-spring.xml 滚动日志（按天+按大小），JSON 格式便于采集
+# 2) actuator：management.endpoints.web.exposure.include=health,info,prometheus
+# 3) graceful shutdown：server.shutdown=graceful
+# =============================================================

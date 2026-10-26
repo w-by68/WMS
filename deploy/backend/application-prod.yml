@@ -1,0 +1,85 @@
+# =============================================================
+# 生产环境配置（阿里云 ECS + RDS MySQL）
+# 放置位置：springBoot/src/main/resources/application-prod.yml
+#
+# 设计原则：所有敏感信息与地址一律走环境变量，配置文件里只留占位符，
+#          这样这个文件可以安全地提交到 Git 仓库，简历上也是加分项。
+# 环境变量由 deploy/.env 提供，docker-compose 注入。
+# =============================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # DB_HOST 填 RDS 的「内网地址」（和 ECS 同地域时用内网，不走公网、不计流量费）
+    # 例：rm-xxxxxx.mysql.rds.aliyuncs.com
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME:wms_db}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      pool-name: HikariPool-WMS
+      # 2核4G 实例：生产池子不要开太大，10 条足够，避免把 RDS 连接数吃满
+      minimum-idle: 5
+      maximum-pool-size: 10
+      connection-timeout: 30000
+      # 连接存活检测：RDS 会在空闲 8 小时后断开空闲连接（wait_timeout），
+      # 不配这个参数，第二天早上第一个请求必然报 Communications link failure
+      max-lifetime: 1200000
+      keepalive-time: 300000
+      connection-test-query: SELECT 1
+  # 优雅停机：收到 docker stop 后，先停止接收新请求，把手上的请求处理完再退出
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+mybatis-plus:
+  configuration:
+    # 生产绝不打印 SQL 到控制台（既拖性能又泄露数据），需要排查时临时改成 StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# 生产日志：输出到文件，Docker 里通过 volume 落盘，方便出问题时回溯
+logging:
+  level:
+    root: info
+    com.example.wms: info
+  file:
+    name: /app/logs/wms-server.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+
+# 优雅停机
+server:
+  port: 8080
+  shutdown: graceful
+
+# =============================================================
+# 08-运维：健康检查端点
+# 只暴露 health 和 info，且对外只报 UP/DOWN——
+# 健康检查接口一旦泄漏细节，等于给攻击者一份系统内部结构图
+# =============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  health:
+    # 把数据库连通性纳入健康状态：RDS 不通时整体报 DOWN，
+    # 这样容器探针和巡检脚本能第一时间发现，而不是等用户报「页面 502」
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
+
+# =============================================================
+# 生产环境必须显式覆盖的两项（见 deploy/.env）
+# =============================================================
+wms:
+  jwt:
+    # 必须换成随机长字符串，绝不能沿用代码里的默认值（那等于把门钥匙公开）
+    # 生成方式：openssl rand -base64 48
+    secret: ${JWT_SECRET}
+    expiration: ${JWT_EXPIRATION:28800000}

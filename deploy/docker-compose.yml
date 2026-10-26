@@ -1,0 +1,97 @@
+# =============================================================
+# WMS 生产部署编排（阿里云 ECS 2核4G + RDS MySQL）
+# 放置位置：ECS 上 /opt/wms/docker-compose.yml
+#
+# 架构：公网80 → wms-web(Nginx) ──/api──> wms-server(Spring Boot 8080) ──> RDS MySQL
+#
+# 两个刻意的设计决策：
+# 1) 后端【不映射端口到宿主机】，只挂在内网。这样安全组只需要开 80，
+#    8080 在公网上完全不可见，扫不到也打不进来。
+# 2) 镜像用官方基础镜像 + 挂载产物，而不是在 2核4G 的机器上构建镜像。
+#    服务器不做构建（构建很吃 CPU/内存），只负责跑。
+# =============================================================
+
+services:
+  # ---------- 后端：Spring Boot ----------
+  wms-server:
+    image: eclipse-temurin:17-jre
+    container_name: wms-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+    # 直接写 java 命令，不依赖 JAVA_OPTS 环境变量约定，避免踩坑
+    # -Xmx768m：4G 内存的机器，给 JVM 768M，留足给系统和 Nginx，避免 OOM 被杀
+    command: >
+      java
+      -Xms256m -Xmx768m
+      -XX:+UseG1GC
+      -XX:MaxMetaspaceSize=256m
+      -Duser.timezone=Asia/Shanghai
+      -Dfile.encoding=UTF-8
+      -jar /app/app.jar
+    volumes:
+      - ./app/wms-server.jar:/app/app.jar:ro
+      - ./logs:/app/logs
+    # 注意这里用的是 expose 而不是 ports：
+    # expose 只对同一 Docker 网络内的容器开放，公网无法访问
+    expose:
+      - "8080"
+    networks:
+      - wms-net
+    # 健康检查让 Docker 能识别后端是否真的活过来了（Spring Boot 启动约 20-40 秒）
+    healthcheck:
+      test:
+        ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    # 限制容器日志体积，否则日志能把 40G 磁盘写满（真实事故高发点）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------- 前端：Nginx 托管静态资源 + 反向代理 API ----------
+  wms-web:
+    image: nginx:1.25-alpine
+    container_name: wms-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./app/dist:/usr/share/nginx/html:ro
+      - ./nginx/wms.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      wms-server:
+        condition: service_started
+    networks:
+      - wms-net
+    # 业务级健康探针：不再只看「端口通不通」，而是看 /actuator/health 是否返回 UP。
+    # 数据库连不上时后端会返回 DOWN，这个探针能立刻发现，
+    # 而原来那种 TCP 探针会一直显示正常。
+    # 注意：要等后端带上 spring-boot-starter-actuator 重新构建后才生效，
+    #      在那之前 wms-web 会显示 unhealthy，不影响网站访问，属正常现象。
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O- http://127.0.0.1/actuator/health 2>/dev/null | grep -q 'UP' || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  wms-net:
+    driver: bridge

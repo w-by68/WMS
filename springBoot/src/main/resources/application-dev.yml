@@ -1,0 +1,24 @@
+# =============================================================
+# 开发环境配置：数据源与开发期调试开关
+# 敏感信息不硬编码：支持环境变量覆盖（DB_USERNAME / DB_PASSWORD）
+# =============================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/wms_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 040608
+    hikari:
+      # 连接池命名：启动日志出现 HikariPool-1 - Start completed 即数据库连通
+      pool-name: HikariPool-1
+      minimum-idle: 5
+      maximum-pool-size: 10
+      connection-timeout: 30000
+
+# 开发环境打印 SQL 到控制台，便于排查
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# logging:
+#   TODO(08-运维)：日志采集（文件输出、滚动策略、JSON 格式）在运维阶段统一配置

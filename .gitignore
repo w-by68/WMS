@@ -1,0 +1,28 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 构建产物 =====
+target/
+dist/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== 运行时产物 =====
+logs/
+*.log
+uploads/
+
+# ===== 环境与密钥（禁止入库）=====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ===== IDE / 系统 =====
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
